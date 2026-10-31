@@ -3,6 +3,10 @@
 </p>
 
 # SoundWave
+<img width="2048" height="768" alt="image" src="https://github.com/user-attachments/assets/905f9bf5-f0dd-4fed-b465-d3a44bd761fe" />
+<img width="1672" height="941" alt="image" src="https://github.com/user-attachments/assets/435e03aa-87f0-44cc-9c7d-694721a84b04" />
+
+
 ### Premium • 100% Offline • Android Music Player
 
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0.20-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)](https://kotlinlang.org)
