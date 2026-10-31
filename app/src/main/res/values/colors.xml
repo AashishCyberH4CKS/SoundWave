@@ -1,0 +1,11 @@
+﻿<resources>
+    <color name="soundwave_primary">#E63946</color>
+    <color name="soundwave_primary_variant">#9B111E</color>
+    <color name="soundwave_secondary">#D90429</color>
+    <color name="soundwave_bg_dark">#101216</color>
+    <color name="soundwave_surface">#181A20</color>
+    <color name="soundwave_surface_elevated">#22252C</color>
+    <color name="soundwave_text_primary">#F8F9FA</color>
+    <color name="soundwave_text_secondary">#9DA3AE</color>
+</resources>
+
