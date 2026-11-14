@@ -1,4 +1,4 @@
-﻿package com.bishify.player.widget
+package com.bishify.player.widget
 
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
@@ -43,8 +43,8 @@ class SoundWaveAppWidgetProvider : AppWidgetProvider() {
         val currentSong = playbackManager.currentSong.value
         val isPlaying = playbackManager.isPlaying.value
 
-        views.setTextViewText(R.id.widget_title, currentSong?.title ?: "BISHIFY")
-        views.setTextViewText(R.id.widget_artist, currentSong?.artist ?: "Offline Music Player")
+        views.setTextViewText(R.id.widget_title, currentSong?.title ?: "SoundWave")
+        views.setTextViewText(R.id.widget_artist, currentSong?.artist ?: "Music Player")
 
         val playIconRes = if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
         views.setImageViewResource(R.id.widget_btn_play_pause, playIconRes)

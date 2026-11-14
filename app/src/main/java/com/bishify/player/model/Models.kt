@@ -15,7 +15,12 @@ data class Song(
     val trackNumber: Int = 0,
     val size: Long = 0L,
     val folderName: String = "",
-    val isFavorite: Boolean = false
+    val isFavorite: Boolean = false,
+    val isOnline: Boolean = false,
+    val streamUrl: String? = null,
+    val sourceId: String = "local",
+    val onlineTrackId: String? = null,
+    val genre: String = ""
 ) {
     val formattedDuration: String
         get() = formatDuration(durationMs)

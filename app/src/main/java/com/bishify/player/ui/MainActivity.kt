@@ -1,4 +1,4 @@
-﻿package com.bishify.player.ui
+package com.bishify.player.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
@@ -28,10 +28,15 @@ import androidx.navigation.compose.*
 import androidx.navigation.navArgument
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import android.app.PictureInPictureParams
+import android.content.res.Configuration
+import android.util.Rational
+import com.bishify.player.ui.components.FloatingPipPlayer
 import com.bishify.player.ui.components.SoundWaveBottomNav
 import com.bishify.player.ui.components.MiniPlayer
 import com.bishify.player.ui.components.Screen
 import com.bishify.player.ui.screens.*
+import com.bishify.player.ui.theme.AmoledBackground
 import com.bishify.player.ui.theme.SoundWaveTheme
 import com.bishify.player.ui.theme.rememberAnimatedTheme
 import com.bishify.player.ui.viewmodel.MusicViewModel
@@ -39,35 +44,92 @@ import com.bishify.player.ui.viewmodel.MusicViewModel
 class MainActivity : ComponentActivity() {
 
     private val viewModel: MusicViewModel by viewModels()
+    private val isInPiP = mutableStateOf(false)
+
+    fun enterPiPMode() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+                val params = PictureInPictureParams.Builder()
+                    .setAspectRatio(Rational(16, 9))
+                    .build()
+                enterPictureInPictureMode(params)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Failed to enter PiP: ${e.message}")
+        }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        try {
+            if (viewModel.playbackManager.isPlaying.value && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                enterPiPMode()
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "onUserLeaveHint failed: ${e.message}")
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        isInPiP.value = isInPictureInPictureMode
+    }
+
+    @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode)
+        isInPiP.value = isInPictureInPictureMode
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        setContent {
-            val preferences by viewModel.preferences.collectAsState()
-            val extractedThemeRaw by viewModel.extractedTheme.collectAsState()
-            val animatedDynamicTheme = extractedThemeRaw?.let { rememberAnimatedTheme(it) }
+        try {
+            setContent {
+                val preferences by viewModel.preferences.collectAsState()
+                val extractedThemeRaw by viewModel.extractedTheme.collectAsState()
+                val animatedDynamicTheme = if (extractedThemeRaw != null) {
+                    rememberAnimatedTheme(extractedThemeRaw!!)
+                } else {
+                    null
+                }
 
-            var showSplash by remember { mutableStateOf(true) }
+                var showSplash by remember { mutableStateOf(true) }
 
-            SoundWaveTheme(
-                preset = preferences.themePreset,
-                isAmoled = preferences.isAmoled,
-                customAccent = Color(preferences.customAccentColor),
-                dynamicTheme = animatedDynamicTheme
-            ) {
-                Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-                    MainAppContent(viewModel = viewModel)
-
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = showSplash,
-                        enter = androidx.compose.animation.fadeIn(),
-                        exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(500))
+                if (isInPiP.value) {
+                    FloatingPipPlayer(viewModel = viewModel)
+                } else {
+                    SoundWaveTheme(
+                        preset = preferences.themePreset,
+                        isAmoled = preferences.isAmoled,
+                        customAccent = Color(preferences.customAccentColor),
+                        dynamicTheme = animatedDynamicTheme
                     ) {
-                        SplashScreen(onSplashFinished = { showSplash = false })
+                        Box(modifier = Modifier.fillMaxSize().background(AmoledBackground)) {
+                            MainAppContent(viewModel = viewModel)
+
+                            androidx.compose.animation.AnimatedVisibility(
+                                visible = showSplash,
+                                enter = androidx.compose.animation.fadeIn(),
+                                exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(500))
+                            ) {
+                                SplashScreen(onSplashFinished = { showSplash = false })
+                            }
+                        }
                     }
                 }
             }
+        } catch (t: Throwable) {
+            val sw = java.io.StringWriter()
+            t.printStackTrace(java.io.PrintWriter(sw))
+            val crashIntent = android.content.Intent(this, CrashActivity::class.java).apply {
+                putExtra("error_type", t.javaClass.name)
+                putExtra("error_message", t.message ?: "Startup Error")
+                putExtra("stack_trace", sw.toString())
+                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK
+            }
+            startActivity(crashIntent)
+            finish()
         }
     }
 }
@@ -123,7 +185,7 @@ fun MainAppContent(viewModel: MusicViewModel) {
             currentRoute == "statistics" ||
             currentRoute == "equalizer"
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize().background(AmoledBackground)) {
         // Custom Wallpaper Backdrop if configured
         if (!preferences.wallpaperUri.isNullOrBlank()) {
             AsyncImage(
@@ -143,7 +205,7 @@ fun MainAppContent(viewModel: MusicViewModel) {
         }
 
         Scaffold(
-            containerColor = if (preferences.wallpaperUri != null) Color.Transparent else MaterialTheme.colorScheme.background,
+            containerColor = if (preferences.wallpaperUri != null) Color.Transparent else AmoledBackground,
             bottomBar = {
                 if (!isFullScreenRoute) {
                     Column(
@@ -151,13 +213,16 @@ fun MainAppContent(viewModel: MusicViewModel) {
                             .fillMaxWidth()
                             .navigationBarsPadding()
                     ) {
+                        // Floating Liquid Glass Mini Player directly above floating nav bar
                         MiniPlayer(
                             playbackManager = playbackManager,
                             onClick = { navController.navigate(Screen.NowPlaying.route) }
                         )
 
+                        // Floating Liquid Glass Bottom Navigation
                         SoundWaveBottomNav(
                             currentRoute = currentRoute,
+                            isPlaying = isPlaying,
                             onNavigate = { screen ->
                                 if (screen.route == Screen.Home.route) {
                                     val popped = navController.popBackStack(Screen.Home.route, inclusive = false)
@@ -180,7 +245,6 @@ fun MainAppContent(viewModel: MusicViewModel) {
                                     }
                                 }
                             },
-                            isPlaying = isPlaying,
                             onCenterClick = {
                                 navController.navigate(Screen.NowPlaying.route)
                             }
@@ -196,17 +260,47 @@ fun MainAppContent(viewModel: MusicViewModel) {
                     .fillMaxSize()
                     .padding(if (isFullScreenRoute) PaddingValues(0.dp) else innerPadding)
             ) {
+                // Home Screen
                 composable(Screen.Home.route) {
                     HomeScreen(
                         viewModel = viewModel,
-                        onNavigateToSongs = { navController.navigate(Screen.Songs.route) },
-                        onNavigateToPlaylists = { navController.navigate(Screen.Playlists.route) },
-                        onNavigateToNowPlaying = { navController.navigate(Screen.NowPlaying.route) }
+                        onNavigateToLibrary = { navController.navigate(Screen.Library.route) },
+                        onNavigateToPlaylists = { navController.navigate(Screen.Library.route) },
+                        onNavigateToNowPlaying = { navController.navigate(Screen.NowPlaying.route) },
+                        onNavigateToSettings = { navController.navigate(Screen.Settings.route) },
+                        onNavigateToEqualizer = { navController.navigate("equalizer") }
                     )
                 }
 
+                // Explore Screen (Discovery)
+                composable(Screen.Explore.route) {
+                    ExploreScreen(viewModel = viewModel)
+                }
+
+                // Library Screen (Unified Collection)
+                composable(Screen.Library.route) {
+                    LibraryScreen(
+                        viewModel = viewModel,
+                        onNavigateToRingtone = { song ->
+                            navController.navigate("ringtone_cutter/${song.id}")
+                        },
+                        onNavigateToEditMetadata = { song ->
+                            navController.navigate("metadata_editor/${song.id}")
+                        }
+                    )
+                }
+
+                // Search Screen (Dedicated Discovery & Instant Filter)
+                composable(Screen.Search.route) {
+                    SearchScreen(
+                        viewModel = viewModel,
+                        onBackClick = { navController.popBackStack() }
+                    )
+                }
+
+                // Legacy route compatibility
                 composable(Screen.Songs.route) {
-                    SongsScreen(
+                    LibraryScreen(
                         viewModel = viewModel,
                         onNavigateToRingtone = { song ->
                             navController.navigate("ringtone_cutter/${song.id}")
@@ -221,6 +315,7 @@ fun MainAppContent(viewModel: MusicViewModel) {
                     PlaylistsScreen(viewModel = viewModel)
                 }
 
+                // Settings Screen
                 composable(Screen.Settings.route) {
                     SettingsScreen(
                         viewModel = viewModel,
@@ -230,6 +325,7 @@ fun MainAppContent(viewModel: MusicViewModel) {
                     )
                 }
 
+                // Full Now Playing Screen
                 composable(Screen.NowPlaying.route) {
                     NowPlayingScreen(
                         viewModel = viewModel,
@@ -255,6 +351,13 @@ fun MainAppContent(viewModel: MusicViewModel) {
 
                 composable("statistics") {
                     StatisticsScreen(
+                        viewModel = viewModel,
+                        onBackClick = { navController.popBackStack() }
+                    )
+                }
+
+                composable("downloads") {
+                    DownloadsScreen(
                         viewModel = viewModel,
                         onBackClick = { navController.popBackStack() }
                     )
@@ -293,4 +396,3 @@ fun MainAppContent(viewModel: MusicViewModel) {
         }
     }
 }
-

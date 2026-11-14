@@ -60,3 +60,22 @@ data class SavedQueueState(
     val isShuffle: Boolean = false
 )
 
+@Entity(tableName = "downloaded_songs")
+data class DownloadedSongEntity(
+    @PrimaryKey
+    val songId: Long,
+    val title: String,
+    val artist: String,
+    val album: String,
+    val durationMs: Long,
+    val artworkUri: String?,
+    val localFilePath: String,
+    val fileSizeBytes: Long,
+    val downloadDate: Long = System.currentTimeMillis(),
+    val quality: String = "320",
+    val status: String = "COMPLETED", // COMPLETED, DOWNLOADING, PAUSED, FAILED
+    val downloadProgress: Float = 1.0f,
+    val downloadUrl: String? = null
+)
+
+

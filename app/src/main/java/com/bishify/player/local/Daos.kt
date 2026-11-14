@@ -65,7 +65,7 @@ interface HistoryDao {
     @Insert
     suspend fun recordHistory(item: ListeningHistoryEntity)
 
-    @Query("SELECT songId FROM listening_history ORDER BY playedAt DESC LIMIT :limit")
+    @Query("SELECT songId FROM (SELECT songId, MAX(playedAt) as maxPlayed FROM listening_history GROUP BY songId ORDER BY maxPlayed DESC LIMIT :limit)")
     fun getRecentlyPlayedSongIds(limit: Int = 50): Flow<List<Long>>
 
     @Query("SELECT songId, COUNT(*) as playCount FROM listening_history GROUP BY songId ORDER BY playCount DESC LIMIT :limit")
@@ -117,5 +117,35 @@ interface QueueDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveState(state: SavedQueueState)
+}
+
+@Dao
+interface DownloadDao {
+    @Query("SELECT * FROM downloaded_songs ORDER BY downloadDate DESC")
+    fun getAllDownloads(): Flow<List<DownloadedSongEntity>>
+
+    @Query("SELECT * FROM downloaded_songs WHERE status = 'COMPLETED' ORDER BY downloadDate DESC")
+    fun getCompletedDownloads(): Flow<List<DownloadedSongEntity>>
+
+    @Query("SELECT songId FROM downloaded_songs WHERE status = 'COMPLETED'")
+    fun getCompletedSongIds(): Flow<List<Long>>
+
+    @Query("SELECT * FROM downloaded_songs WHERE songId = :songId")
+    suspend fun getDownload(songId: Long): DownloadedSongEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertDownload(entity: DownloadedSongEntity)
+
+    @Query("UPDATE downloaded_songs SET status = :status, downloadProgress = :progress WHERE songId = :songId")
+    suspend fun updateStatus(songId: Long, status: String, progress: Float)
+
+    @Query("DELETE FROM downloaded_songs WHERE songId = :songId")
+    suspend fun deleteDownload(songId: Long)
+
+    @Query("DELETE FROM downloaded_songs")
+    suspend fun clearAll()
+
+    @Query("SELECT SUM(fileSizeBytes) FROM downloaded_songs WHERE status = 'COMPLETED'")
+    fun getTotalDownloadSize(): Flow<Long?>
 }
 

@@ -8,4 +8,5 @@ app/build
 .cxx
 *.apk.idsig
 .vscode/
+.kotlin/
 

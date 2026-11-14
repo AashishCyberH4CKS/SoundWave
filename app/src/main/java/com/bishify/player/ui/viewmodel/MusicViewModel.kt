@@ -1,11 +1,22 @@
-﻿package com.bishify.player.ui.viewmodel
+package com.bishify.player.ui.viewmodel
 
 import android.app.Application
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.bishify.player.local.*
 import com.bishify.player.mediastore.MediaStoreScanner
+import com.bishify.player.download.OfflineDownloadManager
+import com.bishify.player.lyrics.LyricsRepository
+import com.bishify.player.lyrics.SongLyrics
 import com.bishify.player.model.*
+import com.bishify.player.online.JioSaavnSourceProvider
+import com.bishify.player.online.MusicCatalogueRepository
+import com.bishify.player.online.MusicSearchRepository
+import com.bishify.player.online.OnlineAlbum
+import com.bishify.player.online.OnlinePlaylist
 import com.bishify.player.player.PlaybackManager
 import com.bishify.player.ui.theme.ExtractedTheme
 import com.bishify.player.ui.theme.PaletteManager
@@ -22,6 +33,71 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val scanner = MediaStoreScanner(application)
     val preferencesManager = PreferencesManager(application)
     val playbackManager = PlaybackManager.getInstance(application)
+    val downloadManager = OfflineDownloadManager.getInstance(application)
+    val activeDownloads = downloadManager.activeDownloads
+    val completedDownloads = downloadManager.completedDownloads
+    val downloadedSongIds = downloadManager.downloadedSongIds
+    val totalDownloadStorageBytes = downloadManager.totalStorageBytes
+
+    // Downloaded songs converted to Song models for seamless 100% offline playback
+    val downloadedSongs: StateFlow<List<Song>> = downloadManager.completedDownloads.map { list ->
+        list.map { entity ->
+            Song(
+                id = entity.songId,
+                title = entity.title,
+                artist = entity.artist,
+                album = entity.album,
+                durationMs = entity.durationMs,
+                dataPath = entity.localFilePath,
+                albumId = 0L,
+                artworkUri = entity.artworkUri,
+                dateAdded = entity.downloadDate,
+                size = entity.fileSizeBytes,
+                isOnline = false,
+                sourceId = "downloaded",
+                streamUrl = entity.localFilePath
+            )
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Online Music Repositories
+    val searchRepository = MusicSearchRepository()
+    val catalogueRepository = MusicCatalogueRepository()
+
+    // Online StateFlows
+    private val _trendingSongs = MutableStateFlow<List<Song>>(emptyList())
+    val trendingSongs: StateFlow<List<Song>> = _trendingSongs.asStateFlow()
+
+    private val _onlineSearchResults = MutableStateFlow<List<Song>>(emptyList())
+    val onlineSearchResults: StateFlow<List<Song>> = _onlineSearchResults.asStateFlow()
+
+    private val _onlineAlbums = MutableStateFlow<List<OnlineAlbum>>(emptyList())
+    val onlineAlbums: StateFlow<List<OnlineAlbum>> = _onlineAlbums.asStateFlow()
+
+    private val _onlinePlaylists = MutableStateFlow<List<OnlinePlaylist>>(emptyList())
+    val onlinePlaylists: StateFlow<List<OnlinePlaylist>> = _onlinePlaylists.asStateFlow()
+
+    private val _isOnlineSearching = MutableStateFlow(false)
+    val isOnlineSearching: StateFlow<Boolean> = _isOnlineSearching.asStateFlow()
+
+    private val _isOnlineLoading = MutableStateFlow(false)
+    val isOnlineLoading: StateFlow<Boolean> = _isOnlineLoading.asStateFlow()
+
+    private val _onlineError = MutableStateFlow<String?>(null)
+    val onlineError: StateFlow<String?> = _onlineError.asStateFlow()
+
+    private val _isNetworkAvailable = MutableStateFlow(true)
+    val isNetworkAvailable: StateFlow<Boolean> = _isNetworkAvailable.asStateFlow()
+
+    private val _genreSongsMap = MutableStateFlow<Map<String, List<Song>>>(emptyMap())
+    val genreSongsMap: StateFlow<Map<String, List<Song>>> = _genreSongsMap.asStateFlow()
+
+    // Lyrics
+    val lyricsRepository = LyricsRepository()
+    private val _currentLyrics = MutableStateFlow<SongLyrics?>(null)
+    val currentLyrics: StateFlow<SongLyrics?> = _currentLyrics.asStateFlow()
+    private val _isLyricsLoading = MutableStateFlow(false)
+    val isLyricsLoading: StateFlow<Boolean> = _isLyricsLoading.asStateFlow()
 
     val preferences = preferencesManager.preferencesFlow.stateIn(
         viewModelScope,
@@ -152,7 +228,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     val recentlyPlayedSongs: StateFlow<List<Song>> = combine(songs, recentlyPlayedIds) { allSongs, ids ->
         val songMap = allSongs.associateBy { it.id }
-        ids.mapNotNull { songMap[it] }
+        ids.distinct().mapNotNull { songMap[it] }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val recentlyAddedSongs: StateFlow<List<Song>> = _rawSongs.map { list ->
@@ -166,11 +242,21 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         rescanLibrary()
+        checkNetworkStatus()
+        loadTrendingSongs()
 
         // Observe MediaStore content observer
         viewModelScope.launch {
             scanner.observeMediaStoreChanges().collect {
                 rescanLibrary()
+            }
+        }
+
+        // Observe custom JioSaavn API configuration from preferences
+        viewModelScope.launch {
+            preferences.map { it.customJioSaavnApiUrl }.distinctUntilChanged().collect { customUrl ->
+                (searchRepository.primaryProvider as? JioSaavnSourceProvider)?.setCustomBaseUrl(customUrl)
+                (catalogueRepository.primaryProvider as? JioSaavnSourceProvider)?.setCustomBaseUrl(customUrl)
             }
         }
 
@@ -188,6 +274,190 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     _extractedTheme.value = null
                 }
+            }
+        }
+
+        // Auto-fetch real-time lyrics whenever active playing track changes
+        viewModelScope.launch {
+            playbackManager.currentSong.collect { song ->
+                if (song != null) {
+                    loadLyricsForSong(song)
+                } else {
+                    _currentLyrics.value = null
+                }
+            }
+        }
+    }
+
+    fun loadLyricsForSong(song: Song) {
+        viewModelScope.launch {
+            _isLyricsLoading.value = true
+            _currentLyrics.value = null
+            val result = lyricsRepository.getLyrics(
+                title = song.title,
+                artist = song.artist,
+                durationMs = song.durationMs
+            )
+            _currentLyrics.value = result.getOrNull()
+            _isLyricsLoading.value = false
+        }
+    }
+
+    fun checkNetworkStatus() {
+        val cm = getApplication<Application>().getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        val network = cm?.activeNetwork
+        val caps = if (network != null) cm.getNetworkCapabilities(network) else null
+        val available = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+        _isNetworkAvailable.value = available
+    }
+
+    fun loadTrendingSongs() {
+        viewModelScope.launch {
+            try {
+                checkNetworkStatus()
+                if (!_isNetworkAvailable.value) return@launch
+
+                _isOnlineLoading.value = true
+                _onlineError.value = null
+
+                val result = catalogueRepository.getTrendingTracks(limit = 30)
+                if (result.isSuccess) {
+                    _trendingSongs.value = result.getOrDefault(emptyList())
+                } else {
+                    _onlineError.value = result.exceptionOrNull()?.localizedMessage
+                }
+            } catch (e: Exception) {
+                _onlineError.value = e.localizedMessage
+            } finally {
+                _isOnlineLoading.value = false
+            }
+        }
+    }
+
+    fun searchOnline(query: String) {
+        if (query.isBlank()) {
+            _onlineSearchResults.value = emptyList()
+            return
+        }
+
+        viewModelScope.launch {
+            checkNetworkStatus()
+            if (!_isNetworkAvailable.value) {
+                _onlineError.value = "No internet connection. Playing offline music."
+                return@launch
+            }
+
+            _isOnlineSearching.value = true
+            _onlineError.value = null
+
+            val result = searchRepository.searchOnline(query.trim(), limit = 30)
+            if (result.isSuccess) {
+                _onlineSearchResults.value = result.getOrDefault(emptyList())
+            } else {
+                _onlineError.value = result.exceptionOrNull()?.localizedMessage
+            }
+            _isOnlineSearching.value = false
+
+            // Also search online albums and playlists concurrently
+            searchOnlineAlbums(query)
+            searchOnlinePlaylists(query)
+        }
+    }
+
+    fun searchOnlineAlbums(query: String) {
+        if (query.isBlank()) {
+            _onlineAlbums.value = emptyList()
+            return
+        }
+        viewModelScope.launch {
+            val jio = searchRepository.primaryProvider as? JioSaavnSourceProvider
+            if (jio != null) {
+                val res = jio.searchAlbums(query.trim())
+                _onlineAlbums.value = res.getOrDefault(emptyList())
+            }
+        }
+    }
+
+    fun searchOnlinePlaylists(query: String) {
+        if (query.isBlank()) {
+            _onlinePlaylists.value = emptyList()
+            return
+        }
+        viewModelScope.launch {
+            val jio = searchRepository.primaryProvider as? JioSaavnSourceProvider
+            if (jio != null) {
+                val res = jio.searchPlaylists(query.trim())
+                _onlinePlaylists.value = res.getOrDefault(emptyList())
+            }
+        }
+    }
+
+    fun loadAlbumTracks(albumId: String, onLoaded: (List<Song>) -> Unit) {
+        viewModelScope.launch {
+            val jio = searchRepository.primaryProvider as? JioSaavnSourceProvider
+            if (jio != null) {
+                val res = jio.getAlbumTracks(albumId)
+                onLoaded(res.getOrDefault(emptyList()))
+            }
+        }
+    }
+
+    fun loadPlaylistTracks(playlistId: String, onLoaded: (List<Song>) -> Unit) {
+        viewModelScope.launch {
+            val jio = searchRepository.primaryProvider as? JioSaavnSourceProvider
+            if (jio != null) {
+                val res = jio.getPlaylistTracks(playlistId)
+                onLoaded(res.getOrDefault(emptyList()))
+            }
+        }
+    }
+
+    fun insertNext(song: Song) {
+        playbackManager.insertNext(song)
+    }
+
+    fun addToQueue(song: Song) {
+        playbackManager.addToQueue(song)
+    }
+
+    fun downloadSong(song: Song) {
+        downloadManager.enqueueDownload(song)
+    }
+
+    fun downloadTracks(songs: List<Song>) {
+        downloadManager.downloadTracks(songs)
+    }
+
+    fun pauseDownload(songId: Long) {
+        downloadManager.pauseDownload(songId)
+    }
+
+    fun resumeDownload(song: Song) {
+        downloadManager.resumeDownload(song)
+    }
+
+    fun cancelDownload(songId: Long) {
+        downloadManager.cancelDownload(songId)
+    }
+
+    fun deleteDownloadedSong(songId: Long) {
+        downloadManager.deleteDownloadedSong(songId)
+    }
+
+    fun clearAllDownloads() {
+        downloadManager.clearAllDownloads()
+    }
+
+    fun loadGenreSongs(genre: String) {
+        viewModelScope.launch {
+            checkNetworkStatus()
+            if (!_isNetworkAvailable.value) return@launch
+
+            val result = catalogueRepository.getTracksByGenre(genre, limit = 25)
+            if (result.isSuccess) {
+                val current = _genreSongsMap.value.toMutableMap()
+                current[genre] = result.getOrDefault(emptyList())
+                _genreSongsMap.value = current
             }
         }
     }
@@ -309,6 +579,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     // Playback Shortcuts
     fun playSong(song: Song) {
+        if (song.isOnline) {
+            playbackManager.playSingle(song)
+            return
+        }
         val currentList = songs.value.ifEmpty { _rawSongs.value }
         val index = currentList.indexOfFirst { it.id == song.id }
         if (index != -1) {

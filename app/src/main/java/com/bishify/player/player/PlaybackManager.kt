@@ -1,4 +1,4 @@
-﻿package com.bishify.player.player
+package com.bishify.player.player
 
 import android.content.ComponentName
 import android.content.ContentUris
@@ -17,6 +17,7 @@ import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
 import com.bishify.player.model.RepeatState
 import com.bishify.player.model.Song
+import com.bishify.player.online.StreamResolver
 import com.bishify.player.service.SoundWavePlaybackService
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.*
@@ -127,6 +128,9 @@ class PlaybackManager private constructor(private val context: Context) {
                 }
                 if (foundSong != null) {
                     _currentSong.value = foundSong
+                    if (currentIdx >= currentQ.size - 2 && foundSong.isOnline) {
+                        triggerAutoMix(foundSong)
+                    }
                 }
                 _duration.value = controller.duration.coerceAtLeast(0L)
             }
@@ -173,13 +177,16 @@ class PlaybackManager private constructor(private val context: Context) {
         }
     }
 
+    private val streamResolver = StreamResolver()
+
     fun playQueue(songs: List<Song>, startIndex: Int = 0) {
         if (songs.isEmpty()) return
         val controller = mediaController ?: return
 
         _queue.value = songs
         _currentIndex.value = startIndex.coerceIn(0, songs.size - 1)
-        _currentSong.value = songs[_currentIndex.value]
+        val selectedSong = songs[_currentIndex.value]
+        _currentSong.value = selectedSong
 
         val mediaItems = songs.map { song ->
             val metadata = MediaMetadata.Builder()
@@ -187,9 +194,22 @@ class PlaybackManager private constructor(private val context: Context) {
                 .setArtist(song.artist)
                 .setAlbumTitle(song.album)
                 .setArtworkUri(song.artworkUri?.let { Uri.parse(it) })
+                .setDescription(if (song.isOnline) "Online • ${song.sourceId}" else "Local")
                 .build()
 
-            val contentUri = if (song.id > 0) {
+            val privateFile = File(context.filesDir, "downloads/${song.id}.m4a")
+            val contentUri = if (privateFile.exists() && privateFile.length() > 0) {
+                Uri.fromFile(privateFile)
+            } else if (song.dataPath.isNotBlank() && File(song.dataPath).exists()) {
+                Uri.fromFile(File(song.dataPath))
+            } else if (song.isOnline || !song.streamUrl.isNullOrBlank()) {
+                val stream = song.streamUrl ?: song.dataPath
+                if (stream.startsWith("http://") || stream.startsWith("https://")) {
+                    Uri.parse(stream)
+                } else {
+                    Uri.parse(stream)
+                }
+            } else if (song.id > 0) {
                 ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, song.id)
             } else {
                 Uri.fromFile(File(song.dataPath))
@@ -205,6 +225,39 @@ class PlaybackManager private constructor(private val context: Context) {
         controller.setMediaItems(mediaItems, startIndex, 0L)
         controller.prepare()
         controller.play()
+
+        // If the current track is an online track with an unresolved stream, resolve it asynchronously (unless already downloaded)
+        val privateSelectedFile = File(context.filesDir, "downloads/${selectedSong.id}.m4a")
+        if (selectedSong.isOnline && !privateSelectedFile.exists() && selectedSong.streamUrl.isNullOrBlank()) {
+            scope.launch {
+                val resolvedResult = streamResolver.resolveStreamUrl(selectedSong)
+                if (resolvedResult.isSuccess) {
+                    val resolvedUrl = resolvedResult.getOrThrow()
+                    val updatedSong = selectedSong.copy(streamUrl = resolvedUrl, dataPath = resolvedUrl)
+                    val updatedQueue = songs.toMutableList()
+                    val idx = updatedQueue.indexOfFirst { it.id == selectedSong.id }
+                    if (idx != -1) {
+                        updatedQueue[idx] = updatedSong
+                        _queue.value = updatedQueue
+                        _currentSong.value = updatedSong
+
+                        val updatedItem = MediaItem.Builder()
+                            .setMediaId(updatedSong.id.toString())
+                            .setUri(Uri.parse(resolvedUrl))
+                            .setMediaMetadata(
+                                MediaMetadata.Builder()
+                                    .setTitle(updatedSong.title)
+                                    .setArtist(updatedSong.artist)
+                                    .setAlbumTitle(updatedSong.album)
+                                    .setArtworkUri(updatedSong.artworkUri?.let { Uri.parse(it) })
+                                    .build()
+                            )
+                            .build()
+                        controller.replaceMediaItem(idx, updatedItem)
+                    }
+                }
+            }
+        }
     }
 
     fun playSingle(song: Song) {
@@ -217,6 +270,92 @@ class PlaybackManager private constructor(private val context: Context) {
         } else {
             currentQ.add(song)
             playQueue(currentQ, currentQ.lastIndex)
+        }
+    }
+
+    fun createMediaItem(song: Song): MediaItem {
+        val metadata = MediaMetadata.Builder()
+            .setTitle(song.title)
+            .setArtist(song.artist)
+            .setAlbumTitle(song.album)
+            .setArtworkUri(song.artworkUri?.let { Uri.parse(it) })
+            .setDescription(if (song.isOnline) "Online • ${song.sourceId}" else "Local")
+            .build()
+
+        val privateFile = File(context.filesDir, "downloads/${song.id}.m4a")
+        val contentUri = if (privateFile.exists() && privateFile.length() > 0) {
+            Uri.fromFile(privateFile)
+        } else if (song.dataPath.isNotBlank() && File(song.dataPath).exists()) {
+            Uri.fromFile(File(song.dataPath))
+        } else if (song.isOnline || !song.streamUrl.isNullOrBlank()) {
+            val stream = song.streamUrl ?: song.dataPath
+            Uri.parse(stream)
+        } else if (song.id > 0) {
+            ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, song.id)
+        } else {
+            Uri.fromFile(File(song.dataPath))
+        }
+
+        return MediaItem.Builder()
+            .setMediaId(song.id.toString())
+            .setUri(contentUri)
+            .setMediaMetadata(metadata)
+            .build()
+    }
+
+    fun insertNext(song: Song) {
+        val controller = mediaController ?: return
+        val currentQ = _queue.value.toMutableList()
+        val curIndex = _currentIndex.value.coerceIn(0, currentQ.size)
+        val insertIndex = (curIndex + 1).coerceAtMost(currentQ.size)
+
+        currentQ.add(insertIndex, song)
+        _queue.value = currentQ
+        controller.addMediaItem(insertIndex, createMediaItem(song))
+    }
+
+    fun addToQueue(song: Song) {
+        val controller = mediaController ?: return
+        val currentQ = _queue.value.toMutableList()
+        currentQ.add(song)
+        _queue.value = currentQ
+        controller.addMediaItem(createMediaItem(song))
+    }
+
+    fun appendTracks(songs: List<Song>) {
+        if (songs.isEmpty()) return
+        val controller = mediaController ?: return
+        val currentQ = _queue.value.toMutableList()
+        currentQ.addAll(songs)
+        _queue.value = currentQ
+        val items = songs.map { createMediaItem(it) }
+        controller.addMediaItems(items)
+    }
+
+    private var isAutoMixing = false
+    private fun triggerAutoMix(song: Song) {
+        if (isAutoMixing) return
+        isAutoMixing = true
+        scope.launch {
+            try {
+                val jio = streamResolver.providers["jiosaavn"] as? com.bishify.player.online.JioSaavnSourceProvider
+                if (jio != null) {
+                    val recoRes = jio.getRecommendedTracks(song, limit = 8)
+                    if (recoRes.isSuccess) {
+                        val tracks = recoRes.getOrDefault(emptyList())
+                        val existingIds = _queue.value.map { it.id }.toSet()
+                        val newTracks = tracks.filterNot { existingIds.contains(it.id) }
+                        if (newTracks.isNotEmpty()) {
+                            appendTracks(newTracks)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(tag, "Auto-Mix failed: ${e.message}")
+            } finally {
+                delay(3000)
+                isAutoMixing = false
+            }
         }
     }
 

@@ -1,4 +1,4 @@
-﻿package com.bishify.player
+package com.bishify.player
 
 import android.app.Application
 import android.os.Build
@@ -8,14 +8,20 @@ import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import com.bishify.player.local.SoundWaveDatabase
 import com.bishify.player.player.PlaybackManager
+import com.bishify.player.util.CrashHandler
 
 class SoundWaveApp : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
-        // Initialize Room DB and PlaybackManager
-        SoundWaveDatabase.getInstance(this)
-        PlaybackManager.getInstance(this)
+        CrashHandler.init(this)
+        try {
+            // Initialize Room DB and PlaybackManager
+            SoundWaveDatabase.getInstance(this)
+            PlaybackManager.getInstance(this)
+        } catch (e: Exception) {
+            android.util.Log.e("SoundWaveApp", "Failed to initialize singletons: ${e.message}", e)
+        }
     }
 
     override fun newImageLoader(): ImageLoader {

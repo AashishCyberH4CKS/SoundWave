@@ -162,14 +162,20 @@ class MediaStoreScanner(private val context: Context) {
             }
         }
 
-        context.contentResolver.registerContentObserver(
-            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-            true,
-            observer
-        )
+        try {
+            context.contentResolver.registerContentObserver(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                true,
+                observer
+            )
+        } catch (_: Exception) {
+            // Permission may not be granted yet at first launch
+        }
 
         awaitClose {
-            context.contentResolver.unregisterContentObserver(observer)
+            try {
+                context.contentResolver.unregisterContentObserver(observer)
+            } catch (_: Exception) {}
         }
     }
 }

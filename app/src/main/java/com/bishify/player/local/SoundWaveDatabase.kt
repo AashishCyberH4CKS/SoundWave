@@ -1,4 +1,4 @@
-﻿package com.bishify.player.local
+package com.bishify.player.local
 
 import android.content.Context
 import androidx.room.Database
@@ -13,9 +13,10 @@ import androidx.room.RoomDatabase
         ListeningHistoryEntity::class,
         ExcludedFolderEntity::class,
         QueueItemEntity::class,
-        SavedQueueState::class
+        SavedQueueState::class,
+        DownloadedSongEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class SoundWaveDatabase : RoomDatabase() {
@@ -24,6 +25,7 @@ abstract class SoundWaveDatabase : RoomDatabase() {
     abstract fun historyDao(): HistoryDao
     abstract fun excludedFolderDao(): ExcludedFolderDao
     abstract fun queueDao(): QueueDao
+    abstract fun downloadDao(): DownloadDao
 
     companion object {
         @Volatile

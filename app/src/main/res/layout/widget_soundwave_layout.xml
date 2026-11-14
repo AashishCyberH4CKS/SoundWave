@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
@@ -28,7 +28,7 @@
             android:id="@+id/widget_title"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="BISHIFY"
+            android:text="SoundWave"
             android:textColor="#FFFFFF"
             android:textSize="15sp"
             android:textStyle="bold"
@@ -40,7 +40,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
-            android:text="Offline Music Player"
+            android:text="Music Player"
             android:textColor="#9DA3AE"
             android:textSize="13sp"
             android:maxLines="1"
@@ -68,7 +68,7 @@
             android:layout_height="44dp"
             android:background="?android:attr/selectableItemBackgroundBorderless"
             android:src="@android:drawable/ic_media_play"
-            android:tint="#E63946"
+            android:tint="#FFFFFF"
             android:contentDescription="Play/Pause" />
 
         <ImageButton

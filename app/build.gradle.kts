@@ -43,6 +43,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {
@@ -88,6 +89,9 @@ dependencies {
 
     // Coil for Compose
     implementation("io.coil-kt:coil-compose:2.7.0")
+
+    // Networking for Online Music Discovery and Audio Streaming
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // Palette for Dynamic Album Art Theme
     implementation("androidx.palette:palette-ktx:1.0.0")

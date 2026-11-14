@@ -1,4 +1,4 @@
-﻿package com.bishify.player.service
+package com.bishify.player.service
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -66,6 +66,7 @@ class SoundWavePlaybackService : MediaSessionService() {
 
     private lateinit var player: ExoPlayer
     private var mediaSession: MediaSession? = null
+    private lateinit var motionControlManager: MotionControlManager
     lateinit var audioEffectsManager: AudioEffectsManager
         private set
 
@@ -135,6 +136,7 @@ class SoundWavePlaybackService : MediaSessionService() {
             .build()
 
         audioEffectsManager = AudioEffectsManager(this)
+        motionControlManager = MotionControlManager(applicationContext, player)
 
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -160,10 +162,12 @@ class SoundWavePlaybackService : MediaSessionService() {
                 updateWidget()
                 if (isPlaying) {
                     acquireWakeLock()
+                    motionControlManager.startListening()
                     playStartTimestamp = System.currentTimeMillis()
                     applyFadeInIfEnabled()
                 } else {
                     releaseWakeLock()
+                    motionControlManager.stopListening()
                     recordListeningHistory()
                 }
             }
@@ -206,8 +210,17 @@ class SoundWavePlaybackService : MediaSessionService() {
             .setCallback(CustomMediaSessionCallback())
             .build()
 
-        val filter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
-        registerReceiver(becomingNoisyReceiver, filter)
+        try {
+            val filter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
+            androidx.core.content.ContextCompat.registerReceiver(
+                this,
+                becomingNoisyReceiver,
+                filter,
+                androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to register becoming noisy receiver: ${e.message}")
+        }
     }
 
     private fun createNotificationChannel() {
@@ -357,10 +370,19 @@ class SoundWavePlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         releaseWakeLock()
-        unregisterReceiver(becomingNoisyReceiver)
+        if (::motionControlManager.isInitialized) {
+            motionControlManager.stopListening()
+        }
+        try {
+            unregisterReceiver(becomingNoisyReceiver)
+        } catch (e: Exception) {
+            Log.e(tag, "Error unregistering noisy receiver: ${e.message}")
+        }
         sleepTimerJob?.cancel()
         fadeInJob?.cancel()
-        audioEffectsManager.release()
+        if (::audioEffectsManager.isInitialized) {
+            audioEffectsManager.release()
+        }
         mediaSession?.run {
             player.release()
             release()

@@ -27,6 +27,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bishify.player.R
@@ -52,8 +53,13 @@ fun SettingsScreen(
     val preferences by viewModel.preferences.collectAsState()
     val scope = rememberCoroutineScope()
     val excludedFolders by viewModel.excludedFolderPaths.collectAsState()
+    val totalStorageBytes by viewModel.totalDownloadStorageBytes.collectAsState()
+    val downloadedSongs by viewModel.downloadedSongs.collectAsState()
 
     var showFolderExclusionDialog by remember { mutableStateOf(false) }
+    var showApiUrlDialog by remember { mutableStateOf(false) }
+    var showClearDownloadsDialog by remember { mutableStateOf(false) }
+    var apiUrlInput by remember(preferences.customJioSaavnApiUrl) { mutableStateOf(preferences.customJioSaavnApiUrl) }
 
     // System Photo Picker for custom wallpaper - copies to app private storage for permanent retention
     val wallpaperPicker = rememberLauncherForActivityResult(
@@ -401,6 +407,234 @@ fun SettingsScreen(
                 }
             }
 
+            // Online Streaming & API Backend
+            item {
+                SettingsCategoryTitle("Online Streaming & API")
+                GlassCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    backgroundColor = colors.surfaceElevated
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CloudQueue,
+                                contentDescription = null,
+                                tint = colors.primary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Music Source Engine", color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Text("JioSaavn API • Full-Length Audio", color = colors.textSecondary, fontSize = 12.sp)
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFF10B981).copy(alpha = 0.15f))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    text = if (preferences.customJioSaavnApiUrl.isBlank()) "Native Engine" else "Self-Hosted",
+                                    color = Color(0xFF10B981),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+                        HorizontalDivider(color = colors.border.copy(alpha = 0.3f))
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // Custom API Base URL
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    apiUrlInput = preferences.customJioSaavnApiUrl
+                                    showApiUrlDialog = true
+                                },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Custom API Instance URL", color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    text = if (preferences.customJioSaavnApiUrl.isBlank()) "Default (Direct high-speed CDN)" else preferences.customJioSaavnApiUrl,
+                                    color = if (preferences.customJioSaavnApiUrl.isBlank()) colors.textSecondary else colors.primary,
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = colors.textSecondary)
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+                        HorizontalDivider(color = colors.border.copy(alpha = 0.3f))
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // Audio Streaming Quality
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Audio Stream Quality", color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                Text("${preferences.streamingAudioQuality} kbps High Definition", color = colors.textSecondary, fontSize = 12.sp)
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                listOf("96", "160", "320").forEach { q ->
+                                    val isSelected = preferences.streamingAudioQuality == q
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (isSelected) colors.primary else colors.surface.copy(alpha = 0.6f))
+                                            .clickable {
+                                                scope.launch {
+                                                    viewModel.preferencesManager.setStreamingAudioQuality(q)
+                                                }
+                                            }
+                                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    ) {
+                                        Text(
+                                            text = "${q}k",
+                                            color = if (isSelected) Color.White else colors.textSecondary,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Downloads & Private App Storage
+            item {
+                SettingsCategoryTitle("Downloads & Private Storage")
+                GlassCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    backgroundColor = colors.surfaceElevated
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CloudDownload,
+                                contentDescription = null,
+                                tint = Color(0xFF10B981),
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Offline Music Storage", color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Text("Private App Sandbox • context.filesDir", color = colors.textSecondary, fontSize = 12.sp)
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFF10B981).copy(alpha = 0.15f))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    text = "100% Isolated",
+                                    color = Color(0xFF10B981),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+                        HorizontalDivider(color = colors.border.copy(alpha = 0.3f))
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // Download Audio Quality Picker
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Download Audio Quality", color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                Text("${preferences.downloadQuality} kbps Studio Clarity", color = colors.textSecondary, fontSize = 12.sp)
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                listOf("160", "320").forEach { q ->
+                                    val isSelected = preferences.downloadQuality == q
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (isSelected) Color(0xFF10B981) else colors.surface.copy(alpha = 0.6f))
+                                            .clickable {
+                                                scope.launch {
+                                                    viewModel.preferencesManager.setDownloadQuality(q)
+                                                }
+                                            }
+                                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    ) {
+                                        Text(
+                                            text = "${q}k",
+                                            color = if (isSelected) Color.White else colors.textSecondary,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+                        HorizontalDivider(color = colors.border.copy(alpha = 0.3f))
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // Wi-Fi Only Downloads
+                        SettingsToggleRow(
+                            title = "Download via Wi-Fi Only",
+                            subtitle = "Pause downloads automatically on mobile data",
+                            checked = preferences.downloadWifiOnly,
+                            onCheckedChange = { scope.launch { viewModel.preferencesManager.setDownloadWifiOnly(it) } }
+                        )
+
+                        Spacer(modifier = Modifier.height(14.dp))
+                        HorizontalDivider(color = colors.border.copy(alpha = 0.3f))
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // Storage Usage Info & Clear Button
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Downloaded Files", color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                val mb = totalStorageBytes / (1024.0 * 1024.0)
+                                val sizeText = if (mb >= 1024) String.format(java.util.Locale.US, "%.2f GB", mb / 1024.0) else String.format(java.util.Locale.US, "%.1f MB", mb)
+                                Text("${downloadedSongs.size} tracks • $sizeText", color = colors.textSecondary, fontSize = 12.sp)
+                            }
+
+                            if (downloadedSongs.isNotEmpty()) {
+                                TextButton(
+                                    onClick = { showClearDownloadsDialog = true },
+                                    colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFFF4D6D))
+                                ) {
+                                    Icon(Icons.Default.DeleteOutline, null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Clear All", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // About SoundWave & Developer
             item {
                 SettingsCategoryTitle("About SoundWave")
@@ -627,6 +861,95 @@ fun SettingsScreen(
             confirmButton = {
                 TextButton(onClick = { showFolderExclusionDialog = false }) {
                     Text("Close", color = colors.primary)
+                }
+            },
+            containerColor = colors.surfaceElevated
+        )
+    }
+
+    // Custom JioSaavn API URL Dialog
+    if (showApiUrlDialog) {
+        AlertDialog(
+            onDismissRequest = { showApiUrlDialog = false },
+            title = { Text("Custom API Instance URL", color = colors.textPrimary, fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text(
+                        text = "Enter the base URL of your self-hosted sumitkolhe/jiosaavn-api instance (deployed on Vercel, Cloudflare Workers, or Docker). Leave empty to use SoundWave's high-speed native client engine.",
+                        color = colors.textSecondary,
+                        fontSize = 12.sp
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = apiUrlInput,
+                        onValueChange = { apiUrlInput = it },
+                        label = { Text("API Base URL") },
+                        placeholder = { Text("https://my-saavn.vercel.app") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = colors.primary,
+                            unfocusedBorderColor = colors.border,
+                            focusedTextColor = colors.textPrimary,
+                            unfocusedTextColor = colors.textPrimary
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            viewModel.preferencesManager.setCustomJioSaavnApiUrl(apiUrlInput.trim())
+                            showApiUrlDialog = false
+                        }
+                    }
+                ) {
+                    Text("Save", color = colors.primary, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        apiUrlInput = ""
+                        scope.launch {
+                            viewModel.preferencesManager.setCustomJioSaavnApiUrl("")
+                            showApiUrlDialog = false
+                        }
+                    }
+                ) {
+                    Text("Reset to Default", color = colors.textSecondary)
+                }
+            },
+            containerColor = colors.surfaceElevated
+        )
+    }
+
+    // Clear All Downloads Confirmation Dialog
+    if (showClearDownloadsDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearDownloadsDialog = false },
+            title = { Text("Clear All Offline Downloads?", color = colors.textPrimary, fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "This will delete all offline audio files from SoundWave's private application storage and free up device space. This action cannot be undone.",
+                    color = colors.textSecondary,
+                    fontSize = 13.sp
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.clearAllDownloads()
+                        showClearDownloadsDialog = false
+                    }
+                ) {
+                    Text("Delete All", color = Color(0xFFFF4D6D), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearDownloadsDialog = false }) {
+                    Text("Cancel", color = colors.textSecondary)
                 }
             },
             containerColor = colors.surfaceElevated
