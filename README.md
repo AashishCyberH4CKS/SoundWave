@@ -164,7 +164,7 @@ SoundWave features a modern **Liquid Glass Floating Bottom Navigation Capsule**:
 ## 🛠️ Architecture & Tech Stack
 
 ```
-app/src/main/java/com/bishify/player/
+app/src/main/java/com/Soundwave/player/
 ├── download/               # Multi-threaded offline download manager & sandbox storage
 │   └── OfflineDownloadManager.kt
 ├── local/                  # Room Database, DAOs, Entities, Preferences DataStore
