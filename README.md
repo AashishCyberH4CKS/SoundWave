@@ -4,6 +4,9 @@
 
 # 🌊 SoundWave
 ### Next-Gen Hybrid Online & Offline Android Music Player
+<img width="1280" height="714" alt="Image 2026-11-14 at 10 56 20 AM" src="https://github.com/user-attachments/assets/13e452db-d956-4870-8ced-cfaef070dca0" />
+<img width="1280" height="714" alt="Image 2026-11-14 at 11 02 16 AM-" src="https://github.com/user-attachments/assets/cd1636f7-9bec-4dd3-b653-0e74107f9fb8" />
+
 
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0.20-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)](https://kotlinlang.org)
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-BOM%202024.10.00-4285F4?style=for-the-badge&logo=android&logoColor=white)](https://developer.android.com/jetpack/compose)
